@@ -19,13 +19,14 @@ void setup() {
 }
 
 void loop() {
-    bool vibration_value = get_vibration();
+
+    unsigned long frec = get_vibration_frec();
     float temperature_value = get_temperature();
     float pressure_value = get_pressure(); 
     float humidity_value = get_humidity();
 
-    Serial.print("Vibration: ");
-    Serial.print(vibration_value);
+    Serial.print("Vib frec: ");
+    Serial.print(frec);
     Serial.print(" Temp: ");
     Serial.print(temperature_value);
     Serial.print(" Pressure: ");
@@ -36,6 +37,34 @@ void loop() {
 
 bool get_vibration() {
     return digitalRead(SW420_GPIO);
+}
+
+unsigned long get_vibration_frec() {
+    const unsigned long count_millis = 500;
+    static unsigned long prev_millis = millis();
+    static bool prev_val = 0;
+    static unsigned long sample_counter = 0;
+    static unsigned long frec = 0;
+
+    bool curr_val = get_vibration();
+    if (curr_val != prev_val) {
+        sample_counter++;
+        prev_val = curr_val;
+    }
+
+    if (millis() < prev_millis) {
+        prev_millis = millis();
+        sample_counter = 0;
+    }
+
+    if ((millis() - prev_millis) >= count_millis) {
+       prev_millis = millis(); 
+        
+        frec = sample_counter;
+        sample_counter = 0;
+    }
+
+    return frec;
 }
 
 float get_temperature() {
