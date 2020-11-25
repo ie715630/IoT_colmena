@@ -15,8 +15,8 @@
 
 #define WIFI_SSID "TP-Link_B184" 
 #define PASS_SSID ""
-#define CH_ID 1241668 
-#define WRITE_APIKEY "Q61FSQB8WASPJQTA"
+#define CH_ID 1241725
+#define WRITE_APIKEY "N1Y9MTMI5RESKR93"
 #define BME_ADDR (0x76) // Device Addr
 #define HTTP_SUCCESS_CODE 200
 #define MIN_DELAY_VAL 20000
@@ -24,12 +24,12 @@
 Adafruit_BME280 bme280;
 WiFiClient  client;
 
-const int SW420_GPIO = 15;
 char ssid[] = WIFI_SSID; // WIFI network SSID 
 char pass[] = PASS_SSID; // WIFI network password 
 unsigned long myChannelNumber = CH_ID; // Channel Number from TS 
 const char * myWriteAPIKey = WRITE_APIKEY; // Write API Key from TS 
 int keyIndex = 0;
+const int SW420_GPIO = 15;
 
 void setup() {
     Serial.begin(115200);  //Initialize serial
@@ -49,22 +49,26 @@ void loop() {
 
     bool wifi_success = connect_to_wifi();
 
-    if (wifi_success) {
-        Serial.println("Connected to WIFI");
-    } else {
+    if(!wifi_success) {
         Serial.println("WIFI connection failed");
         while (1);
     }
+    
+    float temperature_value = get_temperature();
+    float humidity_value = get_humidity();
+    float pressure_value = get_pressure(); 
+    int frec_value = (int) get_vibration_frec();
 
-    float temperature_value = bme280.readTemperature();
+    ThingSpeak.setField(1, temperature_value);
+    ThingSpeak.setField(2, humidity_value);
+    ThingSpeak.setField(3, pressure_value);
+    ThingSpeak.setField(4, frec_value);
 
-    // Write to ThingSpeak. There are up to 8 fields in a channel,
-    // allowing you to store up to 8 different pieces of information in a channel.
-    // Here, we write to field 1.
-    int ch_write = ThingSpeak.writeField(myChannelNumber, 1, temperature_value, myWriteAPIKey);
+    ThingSpeak.setStatus(String("Testing..."));
+    
+    int ch_write = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
     if(ch_write == HTTP_SUCCESS_CODE) {
-        Serial.print("Temperature sent: ");
-        Serial.println(temperature_value);
+        Serial.print("Data sent correctly");
     }
     else {
         Serial.println("Problem updating channel. HTTP error code " + String(ch_write));
@@ -93,4 +97,47 @@ bool connect_to_wifi() {
     } else {
         return true;
     }
+}
+
+unsigned long get_vibration_frec() {
+    const unsigned long count_millis = 500;
+    static unsigned long prev_millis = millis();
+    static bool prev_val = 0;
+    static unsigned long sample_counter = 0;
+    static unsigned long frec = 0;
+
+    bool curr_val = get_vibration();
+    if (curr_val != prev_val) {
+        sample_counter++;
+        prev_val = curr_val;
+    }
+
+    if (millis() < prev_millis) {
+        prev_millis = millis();
+        sample_counter = 0;
+    }
+
+    if ((millis() - prev_millis) >= count_millis) {
+        prev_millis = millis(); 
+        frec = sample_counter;
+        sample_counter = 0;
+    }
+
+    return frec;
+}
+
+float get_temperature() {
+    return bme280.readTemperature();
+}
+
+float get_pressure() {
+    return bme280.readPressure() / 100.0F;
+}
+
+float get_humidity() {
+    return bme280.readHumidity();
+}
+
+bool get_vibration() {
+    return digitalRead(SW420_GPIO);
 }
