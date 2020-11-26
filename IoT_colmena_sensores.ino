@@ -13,22 +13,25 @@
 #include <Adafruit_Sensor.h>
 #include "ThingSpeak.h"
 
-#define WIFI_SSID "TP-Link_B184" 
+#define WIFI_SSID "TP-Link_B184"
 #define PASS_SSID ""
-#define CH_ID 1241725
-#define WRITE_APIKEY "N1Y9MTMI5RESKR93"
+#define CH_ID 1241687
+#define WRITE_APIKEY "PVC8Y4ZX3HURZ9YN"
 #define BME_ADDR (0x76) // Device Addr
 #define HTTP_SUCCESS_CODE 200
-#define MIN_DELAY_VAL 20000
-
+#define SAMPLING_TIME 20000
+#define MAX_TEMP 50
+#define MIN_TEMP -20
+#define LIMIT_HUMIDITY
+// #define SAMPLES_IN_1_HR 3600/(SAMPLING_TIME/1000)
+# define SAMPLES_IN_1_HR 1
 Adafruit_BME280 bme280;
 WiFiClient  client;
 
-char ssid[] = WIFI_SSID; // WIFI network SSID 
-char pass[] = PASS_SSID; // WIFI network password 
-unsigned long myChannelNumber = CH_ID; // Channel Number from TS 
-const char * myWriteAPIKey = WRITE_APIKEY; // Write API Key from TS 
-int keyIndex = 0;
+char ssid[] = WIFI_SSID; // WIFI network SSID
+char pass[] = PASS_SSID; // WIFI network password
+unsigned long myChannelNumber = CH_ID; // Channel Number from TS
+const char * myWriteAPIKey = WRITE_APIKEY; // Write API Key from TS
 const int SW420_GPIO = 15;
 
 void setup() {
@@ -46,35 +49,64 @@ void setup() {
 }
 
 void loop() {
+    static unsigned long prev_time = millis();
+    bool wifi_success = false;
+    static int sample_num = 0;
+    static float temperature_mean = 0;
+    static float humidity_mean = 0;
+    static float pressure_mean = 0;
+    static int frec_mean = 0;
 
-    bool wifi_success = connect_to_wifi();
+    wifi_success = connect_to_wifi();
 
     if(!wifi_success) {
         Serial.println("WIFI connection failed");
         while (1);
     }
-    
+
     float temperature_value = get_temperature();
     float humidity_value = get_humidity();
-    float pressure_value = get_pressure(); 
+    float pressure_value = get_pressure();
     int frec_value = (int) get_vibration_frec();
 
-    ThingSpeak.setField(1, temperature_value);
-    ThingSpeak.setField(2, humidity_value);
-    ThingSpeak.setField(3, pressure_value);
-    ThingSpeak.setField(4, frec_value);
+    if ((millis() - prev_time) >= SAMPLING_TIME)
+    {
+        sample_num += 1;
+        temperature_mean += temperature_value;
+        humidity_mean += humidity_value;
+        pressure_mean += pressure_value;
+        frec_mean += frec_value;
 
-    ThingSpeak.setStatus(String("Testing..."));
-    
-    int ch_write = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-    if(ch_write == HTTP_SUCCESS_CODE) {
-        Serial.print("Data sent correctly");
-    }
-    else {
-        Serial.println("Problem updating channel. HTTP error code " + String(ch_write));
-    }
+        if (sample_num == SAMPLES_IN_1_HR) {
+            sample_num = 0;
+            ThingSpeak.setField(1, humidity_mean/SAMPLES_IN_1_HR);
+            ThingSpeak.setField(2, temperature_mean/SAMPLES_IN_1_HR);
+            ThingSpeak.setField(3, pressure_mean/SAMPLES_IN_1_HR);
+            ThingSpeak.setField(4, frec_mean/SAMPLES_IN_1_HR);
 
-    delay(MIN_DELAY_VAL); // Wait 20 seconds to update the channel again
+            temperature_mean = 0;
+            humidity_mean = 0;
+            pressure_mean = 0;
+            frec_mean = 0;
+
+            //    ThingSpeak.setField(1, temperature_value);
+            //    ThingSpeak.setField(2, humidity_value);
+            //    ThingSpeak.setField(3, pressure_value);
+            //    ThingSpeak.setField(4, frec_value);
+
+            int ch_write = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+            if(ch_write == HTTP_SUCCESS_CODE) {
+                Serial.println("Data sent correctly");
+            }
+            else {
+                Serial.println("Problem updating channel. HTTP error code " + String(ch_write));
+            }
+        }
+
+        prev_time = millis();
+    } else if (millis() < prev_time) { // Overflow
+        prev_time == millis();
+    }
 }
 
 bool connect_to_wifi() {
@@ -118,7 +150,7 @@ unsigned long get_vibration_frec() {
     }
 
     if ((millis() - prev_millis) >= count_millis) {
-        prev_millis = millis(); 
+        prev_millis = millis();
         frec = sample_counter;
         sample_counter = 0;
     }
@@ -127,7 +159,12 @@ unsigned long get_vibration_frec() {
 }
 
 float get_temperature() {
-    return bme280.readTemperature();
+    static float prev_temp = 0;
+    float temp = bme280.readTemperature();
+    if ((temp > MIN_TEMP) && (temp < MAX_TEMP)) {
+        prev_temp = temp;
+    }
+    return prev_temp;
 }
 
 float get_pressure() {
